@@ -7,6 +7,7 @@ import com.ragplatform.rag_backend.repository.DocumentChunkRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -75,6 +76,32 @@ public class QueryService {
         log.info("Query completed in {}ms", latency);
 
         return new QueryResponse(answer, request.getQuestion(), sourcePreviews, latency);
+    }
+
+    public Flux<String> queryStream(QueryRequest request) {
+        log.info("Processing streaming query: {}", request.getQuestion());
+
+        // Step 1: Convert question to embedding (same as before)
+        float[] questionEmbedding = geminiService.generateEmbedding(request.getQuestion());
+        String embeddingStr = DocumentChunk.toEmbeddingJson(questionEmbedding);
+
+        // Step 2: Find similar chunks (same as before)
+        int maxChunks = request.getMaxChunks() != null ? request.getMaxChunks() : 5;
+        List<DocumentChunk> similarChunks = chunkRepository.findSimilarChunks(
+                embeddingStr, maxChunks
+        );
+
+        if (similarChunks.isEmpty()) {
+            return Flux.just("No relevant documents found. Please upload documents first.");
+        }
+
+        // Step 3: Build context (same as before)
+        String context = similarChunks.stream()
+                .map(DocumentChunk::getContent)
+                .collect(Collectors.joining("\n\n---\n\n"));
+
+        // Step 4: Return a stream instead of waiting for full answer
+        return geminiService.generateAnswerStream(context, request.getQuestion());
     }
 
 

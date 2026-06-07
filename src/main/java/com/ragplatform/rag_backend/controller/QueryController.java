@@ -9,6 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.MediaType;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api")
@@ -33,6 +35,18 @@ public class QueryController {
 
         QueryResponse response = queryService.query(request);
         return ResponseEntity.ok(response);
+    }
+
+    // GET /api/query/stream
+    @PostMapping(value = "/query/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> queryStream(@RequestBody QueryRequest request) {
+        log.info("Received streaming query: {}", request.getQuestion());
+
+        if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
+            return Flux.just("Question cannot be empty");
+        }
+
+        return queryService.queryStream(request);
     }
 
 }

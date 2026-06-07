@@ -2,10 +2,12 @@ package com.ragplatform.rag_backend.service;
 
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -120,6 +122,19 @@ public class GeminiService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate answer: " + e.getMessage(), e);
         }
+    }
+
+    public Flux<String> generateAnswerStream(String context, String question) {
+        // Get the full answer first (we know this works from our query API)
+        String fullAnswer = generateAnswer(context, question);
+
+        // Split into words and stream them one by one
+        // This gives the same "typing" effect as real streaming
+        String[] words = fullAnswer.split(" ");
+
+        return Flux.fromArray(words)
+                .map(word -> word + " ")
+                .delayElements(java.time.Duration.ofMillis(50)); // 50ms between words
     }
 
 
