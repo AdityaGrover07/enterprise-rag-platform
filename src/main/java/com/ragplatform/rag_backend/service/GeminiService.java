@@ -68,16 +68,16 @@ public class GeminiService {
     public String generateAnswer(String context, String question) {
         try {
             String prompt = """
-                You are a helpful assistant. Answer the question based ONLY on the context provided below.
-                If the answer is not in the context, say "I don't have enough information to answer that."
-                
-                Context:
-                %s
-                
-                Question: %s
-                
-                Answer:
-                """.formatted(context, question);
+            You are a helpful assistant. Answer the question based ONLY on the context provided below.
+            If the answer is not in the context, say "I don't have enough information to answer that."
+            
+            Context:
+            %s
+            
+            Question: %s
+            
+            Answer:
+            """.formatted(context, question);
 
             Map<String, Object> requestBody = Map.of(
                     "contents", List.of(
@@ -85,23 +85,37 @@ public class GeminiService {
                     )
             );
 
-            String response = webClient.post()
-                    .uri(apiUrl + "/models/gemini-2.0-flash:generateContent?key=" + apiKey)
-                    .header("Content-Type", "application/json")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
+            // Retry once on 429
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    String response = webClient.post()
+                            .uri(apiUrl + "/models/gemini-2.5-flash:generateContent?key=" + apiKey)
+                            .header("Content-Type", "application/json")
+                            .bodyValue(requestBody)
+                            .retrieve()
+                            .bodyToMono(String.class)
+                            .block();
 
-            JsonNode root = objectMapper.readTree(response);
-            return root
-                    .path("candidates")
-                    .get(0)
-                    .path("content")
-                    .path("parts")
-                    .get(0)
-                    .path("text")
-                    .asText();
+                    JsonNode root = objectMapper.readTree(response);
+                    return root
+                            .path("candidates")
+                            .get(0)
+                            .path("content")
+                            .path("parts")
+                            .get(0)
+                            .path("text")
+                            .asText();
+
+                } catch (Exception e) {
+                    if (e.getMessage().contains("429") && attempt == 0) {
+                        // Wait 10 seconds then retry
+                        Thread.sleep(10000);
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+            throw new RuntimeException("Failed after retries");
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate answer: " + e.getMessage(), e);

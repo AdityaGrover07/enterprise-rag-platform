@@ -14,11 +14,22 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, St
     List<DocumentChunk> findByDocumentId(String documentId);
 
     // Now we cast embeddingJson text to vector for similarity search
+//    @Query(value = """
+//        SELECT * FROM document_chunks
+//        ORDER BY embedding_json::vector <=> CAST(:embedding AS vector)
+//        LIMIT :limit
+//        """, nativeQuery = true)
+//    List<DocumentChunk> findSimilarChunks(
+//            @Param("embedding") String embedding,
+//            @Param("limit") int limit
+//    );
+
     @Query(value = """
-        SELECT * FROM document_chunks
-        ORDER BY embedding_json::vector <=> CAST(:embedding AS vector)
-        LIMIT :limit
-        """, nativeQuery = true)
+    SELECT * FROM document_chunks
+    WHERE embedding_json IS NOT NULL
+    ORDER BY embedding_json::vector <=> CAST(?1 AS vector)
+    LIMIT ?2
+    """, nativeQuery = true)
     List<DocumentChunk> findSimilarChunks(
             @Param("embedding") String embedding,
             @Param("limit") int limit
