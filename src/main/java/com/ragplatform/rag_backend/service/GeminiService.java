@@ -1,0 +1,112 @@
+package com.ragplatform.rag_backend.service;
+
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class GeminiService {
+
+    @Value("${gemini.api.key}")
+    private String apiKey;
+
+    @Value("${gemini.api.url}")
+    private String apiUrl;
+
+    private final WebClient webClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public GeminiService(WebClient.Builder webClientBuilder){
+        this.webClient = webClientBuilder.build();
+    }
+
+    public float[] generateEmbedding(String text) {
+        try {
+            // Build request body
+            Map<String, Object> requestBody = Map.of(
+                    "model", "models/gemini-embedding-001",
+                    "content", Map.of(
+                            "parts", List.of(Map.of("text", text))
+                    )
+            );
+
+            // Call Gemini embedding API
+            String response = webClient.post()
+                    .uri(apiUrl + "/models/gemini-embedding-001:embedContent?key=" + apiKey)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            // Parse the response to extract the vector values
+            JsonNode root = objectMapper.readTree(response);
+            JsonNode valuesNode = root
+                    .path("embedding")
+                    .path("values");
+
+            // Convert JSON array to float[]
+            float[] embedding = new float[valuesNode.size()];
+            for (int i = 0; i < valuesNode.size(); i++) {
+                embedding[i] = (float) valuesNode.get(i).asDouble();
+            }
+
+            return embedding;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate embedding: " + e.getMessage(), e);
+        }
+    }
+
+    // Generates an answer from Gemini given context + question
+    public String generateAnswer(String context, String question) {
+        try {
+            String prompt = """
+                You are a helpful assistant. Answer the question based ONLY on the context provided below.
+                If the answer is not in the context, say "I don't have enough information to answer that."
+                
+                Context:
+                %s
+                
+                Question: %s
+                
+                Answer:
+                """.formatted(context, question);
+
+            Map<String, Object> requestBody = Map.of(
+                    "contents", List.of(
+                            Map.of("parts", List.of(Map.of("text", prompt)))
+                    )
+            );
+
+            String response = webClient.post()
+                    .uri(apiUrl + "/models/gemini-2.0-flash:generateContent?key=" + apiKey)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            JsonNode root = objectMapper.readTree(response);
+            return root
+                    .path("candidates")
+                    .get(0)
+                    .path("content")
+                    .path("parts")
+                    .get(0)
+                    .path("text")
+                    .asText();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate answer: " + e.getMessage(), e);
+        }
+    }
+
+
+}
