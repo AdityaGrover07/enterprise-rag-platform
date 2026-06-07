@@ -19,27 +19,38 @@ public class QueryService {
 
     private final GeminiService geminiService;
     private final DocumentChunkRepository chunkRepository;
+    private final CacheService cacheService;
 
     public QueryService(GeminiService geminiService,
-                        DocumentChunkRepository chunkRepository) {
+                        DocumentChunkRepository chunkRepository, CacheService cacheService) {
         this.geminiService = geminiService;
         this.chunkRepository = chunkRepository;
+        this.cacheService = cacheService;
     }
 
     public QueryResponse query(QueryRequest request) {
         long startTime = System.currentTimeMillis();
         log.info("Processing query: {}", request.getQuestion());
 
-        // Step 1: Convert the question into an embedding
+        // Step 1: Check cache first
+        String cachedAnswer = cacheService.getCachedAnswer(request.getQuestion());
+        if (cachedAnswer != null) {
+            log.info("Returning cached answer");
+            return new QueryResponse(
+                    cachedAnswer,
+                    request.getQuestion(),
+                    List.of("(from cache)"),
+                    System.currentTimeMillis() - startTime
+            );
+        }
+
+        // Step 2: Convert the question into an embedding
         log.info("Generating question embedding...");
         float[] questionEmbedding = geminiService.generateEmbedding(request.getQuestion());
-
-        // Step 2: Convert float[] to string format for pgvector query
-        // pgvector expects format: [0.1,0.2,0.3,...]
         String embeddingStr = DocumentChunk.toEmbeddingJson(questionEmbedding);
-        log.info("Searching for similar chunks...");
 
-        // Step 3: Find most similar chunks using vector similarity search
+        // Step 3: Find most similar chunks
+        log.info("Searching for similar chunks...");
         int maxChunks = request.getMaxChunks() != null ? request.getMaxChunks() : 5;
         List<DocumentChunk> similarChunks = chunkRepository.findSimilarChunks(
                 embeddingStr, maxChunks
@@ -56,18 +67,19 @@ public class QueryService {
             );
         }
 
-        // Step 4: Build context from retrieved chunks
-        // We join all chunks into one big context string
+        // Step 4: Build context
         String context = similarChunks.stream()
                 .map(DocumentChunk::getContent)
                 .collect(Collectors.joining("\n\n---\n\n"));
 
-        log.info("Sending to Gemini for answer generation...");
-
-        // Step 5: Send context + question to Gemini and get answer
+        // Step 5: Generate answer
+        log.info("Generating answer...");
         String answer = geminiService.generateAnswer(context, request.getQuestion());
 
-        // Step 6: Collect source previews (first 100 chars of each chunk)
+        // Step 6: Cache the answer for next time
+        cacheService.cacheQueryAnswer(request.getQuestion(), answer);
+
+        // Step 7: Return response
         List<String> sourcePreviews = similarChunks.stream()
                 .map(c -> c.getContent().substring(0, Math.min(100, c.getContent().length())) + "...")
                 .collect(Collectors.toList());
@@ -77,7 +89,6 @@ public class QueryService {
 
         return new QueryResponse(answer, request.getQuestion(), sourcePreviews, latency);
     }
-
     public Flux<String> queryStream(QueryRequest request) {
         log.info("Processing streaming query: {}", request.getQuestion());
 

@@ -1,6 +1,9 @@
 package com.ragplatform.rag_backend.service;
 
 
+import com.ragplatform.rag_backend.model.DocumentChunk;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -24,13 +27,24 @@ public class GeminiService {
     private final WebClient webClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public GeminiService(WebClient.Builder webClientBuilder){
+    private final CacheService cacheService;
+
+    private static final Logger log = LoggerFactory.getLogger(GeminiService.class);
+
+    public GeminiService(WebClient.Builder webClientBuilder, CacheService cacheService){
         this.webClient = webClientBuilder.build();
+        this.cacheService = cacheService;
     }
 
     public float[] generateEmbedding(String text) {
+        // Check cache first
+        String cached = cacheService.getCachedEmbedding(text);
+        if (cached != null) {
+            log.info("Embedding cache HIT");
+            return DocumentChunk.fromEmbeddingJson(cached);
+        }
+
         try {
-            // Build request body
             Map<String, Object> requestBody = Map.of(
                     "model", "models/gemini-embedding-001",
                     "content", Map.of(
@@ -38,7 +52,6 @@ public class GeminiService {
                     )
             );
 
-            // Call Gemini embedding API
             String response = webClient.post()
                     .uri(apiUrl + "/models/gemini-embedding-001:embedContent?key=" + apiKey)
                     .header("Content-Type", "application/json")
@@ -47,17 +60,17 @@ public class GeminiService {
                     .bodyToMono(String.class)
                     .block();
 
-            // Parse the response to extract the vector values
             JsonNode root = objectMapper.readTree(response);
-            JsonNode valuesNode = root
-                    .path("embedding")
-                    .path("values");
+            JsonNode valuesNode = root.path("embedding").path("values");
 
-            // Convert JSON array to float[]
             float[] embedding = new float[valuesNode.size()];
             for (int i = 0; i < valuesNode.size(); i++) {
                 embedding[i] = (float) valuesNode.get(i).asDouble();
             }
+
+            // Store in cache for next time
+            String embeddingJson = DocumentChunk.toEmbeddingJson(embedding);
+            cacheService.cacheEmbedding(text, embeddingJson);
 
             return embedding;
 
@@ -65,6 +78,7 @@ public class GeminiService {
             throw new RuntimeException("Failed to generate embedding: " + e.getMessage(), e);
         }
     }
+
 
     // Generates an answer from Gemini given context + question
     public String generateAnswer(String context, String question) {
