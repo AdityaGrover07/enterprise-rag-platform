@@ -6,6 +6,8 @@ target/
 .idea/
 *.iml
 *.iws
+*.ipr
+out/
 
 # Mac
 .DS_Store
@@ -13,5 +15,12 @@ target/
 # Logs
 *.log
 
-# Environment - NEVER push this
+# Environment - NEVER push API keys
+.env
+
+# Docker volumes (local data)
+postgres-data/
+redis-data/
+
+# Application secrets
 application-local.properties
