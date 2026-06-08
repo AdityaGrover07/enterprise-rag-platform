@@ -123,8 +123,10 @@ public class GeminiService {
                             .asText();
 
                 } catch (Exception e) {
-                    if (e.getMessage().contains("429") && attempt == 0) {
+                    if ((e.getMessage().contains("429") || e.getMessage().contains("503")) && attempt == 0) {
                         // Wait 10 seconds then retry
+                        log.warn("Gemini API returned {}. Retrying in 10 seconds...",
+                                e.getMessage().contains("429") ? "429" : "503");
                         Thread.sleep(10000);
                     } else {
                         throw e;
