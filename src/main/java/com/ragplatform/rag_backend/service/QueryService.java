@@ -20,12 +20,14 @@ public class QueryService {
     private final GeminiService geminiService;
     private final DocumentChunkRepository chunkRepository;
     private final CacheService cacheService;
+    private final MetricsService metricsService;
 
     public QueryService(GeminiService geminiService,
-                        DocumentChunkRepository chunkRepository, CacheService cacheService) {
+                        DocumentChunkRepository chunkRepository, CacheService cacheService, MetricsService metricsService) {
         this.geminiService = geminiService;
         this.chunkRepository = chunkRepository;
         this.cacheService = cacheService;
+        this.metricsService = metricsService;
     }
 
     public QueryResponse query(QueryRequest request) {
@@ -36,6 +38,10 @@ public class QueryService {
         String cachedAnswer = cacheService.getCachedAnswer(request.getQuestion());
         if (cachedAnswer != null) {
             log.info("Returning cached answer");
+
+            long latency = System.currentTimeMillis() - startTime;
+            metricsService.recordQuery(latency, true); // true = from cache
+
             return new QueryResponse(
                     cachedAnswer,
                     request.getQuestion(),
@@ -85,6 +91,9 @@ public class QueryService {
                 .collect(Collectors.toList());
 
         long latency = System.currentTimeMillis() - startTime;
+
+        metricsService.recordQuery(latency, false); // false = not from cache
+
         log.info("Query completed in {}ms", latency);
 
         return new QueryResponse(answer, request.getQuestion(), sourcePreviews, latency);
